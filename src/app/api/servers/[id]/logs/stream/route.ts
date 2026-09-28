@@ -4,6 +4,7 @@ import { getServer } from "@/lib/services/server.service";
 import { getDockerClient } from "@/lib/docker/orchestrator";
 import { canAccessServer } from "@/lib/services/server-access";
 import { streamLogs } from "@pruefertit/docker-orchestrator";
+import { truncateLogMessage } from "@/lib/utils/log-safety";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,14 @@ export async function GET(
     async start(controller) {
       const encoder = new TextEncoder();
 
-      const enqueue = (text: string) => {
+      const enqueue = (text: string, force = false) => {
+        if (
+          !force &&
+          controller.desiredSize !== null &&
+          controller.desiredSize <= 0
+        ) {
+          return;
+        }
         try {
           controller.enqueue(encoder.encode(text));
         } catch {
@@ -56,7 +64,7 @@ export async function GET(
       };
 
       // Initial keep-alive
-      enqueue(": connected\n\n");
+      enqueue(": connected\n\n", true);
 
       let logStream: Awaited<ReturnType<typeof streamLogs>> | null = null;
 
@@ -66,24 +74,27 @@ export async function GET(
         logStream.on("data", (entry) => {
           const payload = JSON.stringify({
             stream: entry.stream,
-            message: entry.message,
+            message: truncateLogMessage(entry.message),
             timestamp: entry.timestamp?.toISOString() ?? new Date().toISOString(),
           });
           enqueue(`data: ${payload}\n\n`);
         });
 
         logStream.on("error", (err) => {
-          enqueue(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
+          enqueue(
+            `event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`,
+            true,
+          );
           controller.close();
         });
 
         logStream.on("end", () => {
-          enqueue("event: end\ndata: {}\n\n");
+          enqueue("event: end\ndata: {}\n\n", true);
           controller.close();
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to stream logs";
-        enqueue(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`);
+        enqueue(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`, true);
         controller.close();
       }
 
