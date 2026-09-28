@@ -45,6 +45,10 @@ import {
 } from "@/lib/services/minecraft-version.service";
 import { VersionUpdateAvailableError } from "@/lib/api/errors";
 import { createBackupWithStrategy } from "@/lib/services/backup-strategy.service";
+import {
+  clampLogLineCount,
+  sanitizeLogEntries,
+} from "@/lib/utils/log-safety";
 
 export type { LogEntry };
 
@@ -890,7 +894,9 @@ export async function fetchLogs(
   if (!server.containerId) return [];
 
   const docker = await getDockerClient();
-  return tailLogs(docker, server.containerId, lines ?? 200);
+  const safeLineCount = clampLogLineCount(lines);
+  const entries = await tailLogs(docker, server.containerId, safeLineCount);
+  return sanitizeLogEntries(entries, safeLineCount);
 }
 
 export async function sendConsoleCommand(
