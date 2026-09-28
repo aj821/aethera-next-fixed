@@ -25,7 +25,7 @@ export function useServerConsole(
   serverId: string | null,
   options: UseServerConsoleOptions = {},
 ): UseServerConsoleResult {
-  const { enabled = true, maxLines = 1000 } = options;
+  const { enabled = true, maxLines = 500 } = options;
 
   const [lines, setLines] = useState<ConsoleLine[]>([]);
   const [connected, setConnected] = useState(false);
@@ -33,15 +33,27 @@ export function useServerConsole(
 
   const esRef = useRef<EventSource | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingLines = useRef<ConsoleLine[]>([]);
 
-  const clear = useCallback(() => setLines([]), []);
+  const clear = useCallback(() => {
+    pendingLines.current = [];
+    setLines([]);
+  }, []);
 
   const appendLines = useCallback(
     (incoming: ConsoleLine[]) => {
-      setLines((prev) => {
-        const next = [...prev, ...incoming];
-        return next.length > maxLines ? next.slice(-maxLines) : next;
-      });
+      pendingLines.current = [...pendingLines.current, ...incoming].slice(
+        -maxLines,
+      );
+      if (flushTimer.current) return;
+
+      flushTimer.current = setTimeout(() => {
+        const batch = pendingLines.current;
+        pendingLines.current = [];
+        flushTimer.current = null;
+        setLines((prev) => [...prev, ...batch].slice(-maxLines));
+      }, 100);
     },
     [maxLines],
   );
@@ -152,6 +164,9 @@ export function useServerConsole(
       esRef.current?.close();
       esRef.current = null;
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      if (flushTimer.current) clearTimeout(flushTimer.current);
+      flushTimer.current = null;
+      pendingLines.current = [];
       setConnected(false);
     };
   }, [serverId, enabled, appendLines]);

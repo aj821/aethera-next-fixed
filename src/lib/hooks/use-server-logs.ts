@@ -25,7 +25,7 @@ export function useServerLogs(
   serverId: string | null,
   options: UseServerLogsOptions = {},
 ): UseServerLogsResult {
-  const { enabled = true, maxLines = 1000, reconnectDelay = 3000 } = options;
+  const { enabled = true, maxLines = 500, reconnectDelay = 3000 } = options;
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [connected, setConnected] = useState(false);
@@ -33,8 +33,25 @@ export function useServerLogs(
 
   const esRef = useRef<EventSource | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingLogs = useRef<LogEntry[]>([]);
 
-  const clear = useCallback(() => setLogs([]), []);
+  const clear = useCallback(() => {
+    pendingLogs.current = [];
+    setLogs([]);
+  }, []);
+
+  const appendLog = useCallback((entry: LogEntry) => {
+    pendingLogs.current = [...pendingLogs.current, entry].slice(-maxLines);
+    if (flushTimer.current) return;
+
+    flushTimer.current = setTimeout(() => {
+      const batch = pendingLogs.current;
+      pendingLogs.current = [];
+      flushTimer.current = null;
+      setLogs((prev) => [...prev, ...batch].slice(-maxLines));
+    }, 100);
+  }, [maxLines]);
 
   useEffect(() => {
     if (!serverId || !enabled) {
@@ -56,10 +73,7 @@ export function useServerLogs(
       es.onmessage = (event) => {
         try {
           const entry: LogEntry = JSON.parse(event.data);
-          setLogs((prev) => {
-            const next = [...prev, entry];
-            return next.length > maxLines ? next.slice(-maxLines) : next;
-          });
+          appendLog(entry);
         } catch {
           // ignore malformed messages
         }
@@ -106,9 +120,12 @@ export function useServerLogs(
       esRef.current?.close();
       esRef.current = null;
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      if (flushTimer.current) clearTimeout(flushTimer.current);
+      flushTimer.current = null;
+      pendingLogs.current = [];
       setConnected(false);
     };
-  }, [serverId, enabled, maxLines, reconnectDelay]);
+  }, [serverId, enabled, reconnectDelay, appendLog]);
 
   return { logs, connected, error, clear };
 }
