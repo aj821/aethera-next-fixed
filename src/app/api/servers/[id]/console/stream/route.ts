@@ -3,6 +3,10 @@ import { verifyAccessToken } from "@/lib/auth/jwt";
 import { getServer } from "@/lib/services/server.service";
 import { getOrchestrator } from "@/lib/docker/orchestrator";
 import { assertServerPermission } from "@/lib/services/server-access";
+import {
+  sanitizeLogEntries,
+  truncateLogMessage,
+} from "@/lib/utils/log-safety";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +50,14 @@ export async function GET(
     async start(controller) {
       const encoder = new TextEncoder();
 
-      const enqueue = (text: string) => {
+      const enqueue = (text: string, force = false) => {
+        if (
+          !force &&
+          controller.desiredSize !== null &&
+          controller.desiredSize <= 0
+        ) {
+          return;
+        }
         try {
           controller.enqueue(encoder.encode(text));
         } catch {
@@ -64,40 +75,49 @@ export async function GET(
         const buffer = console.getBuffer();
         if (buffer.length > 0) {
           const payload = JSON.stringify(
-            buffer.map((line) => ({
-              stream: line.stream,
-              message: line.message,
-              timestamp: line.timestamp.toISOString(),
-            })),
+            sanitizeLogEntries(
+              buffer.map((line) => ({
+                stream: line.stream,
+                message: line.message,
+                timestamp: line.timestamp.toISOString(),
+              })),
+              500,
+            ),
           );
-          enqueue(`event: buffer\ndata: ${payload}\n\n`);
+          enqueue(`event: buffer\ndata: ${payload}\n\n`, true);
         }
 
-        enqueue(": connected\n\n");
+        enqueue(": connected\n\n", true);
 
         console.on("output", (line) => {
           const payload = JSON.stringify({
             stream: line.stream,
-            message: line.message,
+            message: truncateLogMessage(line.message),
             timestamp: line.timestamp.toISOString(),
           });
           enqueue(`data: ${payload}\n\n`);
         });
 
         console.on("error", (err) => {
-          enqueue(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
+          enqueue(
+            `event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`,
+            true,
+          );
         });
 
         console.on("disconnected", () => {
-          enqueue(`event: disconnected\ndata: {}\n\n`);
+          enqueue(`event: disconnected\ndata: {}\n\n`, true);
         });
 
         console.on("reconnecting", (attempt) => {
-          enqueue(`event: reconnecting\ndata: ${JSON.stringify({ attempt })}\n\n`);
+          enqueue(
+            `event: reconnecting\ndata: ${JSON.stringify({ attempt })}\n\n`,
+            true,
+          );
         });
 
         console.on("connected", () => {
-          enqueue(`event: reconnected\ndata: {}\n\n`);
+          enqueue(`event: reconnected\ndata: {}\n\n`, true);
         });
 
         // Cleanup on client disconnect
@@ -106,7 +126,7 @@ export async function GET(
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to attach console";
-        enqueue(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`);
+        enqueue(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`, true);
         controller.close();
       }
     },
