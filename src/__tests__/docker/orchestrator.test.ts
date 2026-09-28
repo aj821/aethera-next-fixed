@@ -75,6 +75,31 @@ describe("serverEnvFromDoc", () => {
     // VERSION should either be undefined or "latest"
     expect(!env.VERSION || env.VERSION === "latest").toBe(true);
   });
+
+  it("builds Spigot from source by default", () => {
+    const env = serverEnvFromDoc({
+      serverType: "spigot",
+      version: "1.21.8",
+      memory: 4096,
+      port: 25565,
+      env: {},
+    } as unknown as Parameters<typeof serverEnvFromDoc>[0]);
+
+    expect(env.TYPE).toBe("SPIGOT");
+    expect(env.BUILD_FROM_SOURCE).toBe("true");
+  });
+
+  it("allows an explicit Spigot source-build override", () => {
+    const env = serverEnvFromDoc({
+      serverType: "spigot",
+      version: "1.21.8",
+      memory: 4096,
+      port: 25565,
+      env: { BUILD_FROM_SOURCE: "false" },
+    } as unknown as Parameters<typeof serverEnvFromDoc>[0]);
+
+    expect(env.BUILD_FROM_SOURCE).toBe("false");
+  });
 });
 
 // ---------------------------------------------------------------------------
