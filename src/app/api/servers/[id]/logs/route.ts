@@ -3,6 +3,7 @@ import { withAuth } from "@/lib/auth/guards";
 import { errorResponse, forbidden, notFound } from "@/lib/api/errors";
 import { getServer, fetchLogs } from "@/lib/services/server.service";
 import { canAccessServer } from "@/lib/services/server-access";
+import { clampLogLineCount } from "@/lib/utils/log-safety";
 
 export const GET = withAuth(async (req: NextRequest, { session, params }) => {
   try {
@@ -11,7 +12,9 @@ export const GET = withAuth(async (req: NextRequest, { session, params }) => {
     if (!(await canAccessServer(server, session.userId))) throw forbidden();
 
     const url = new URL(req.url);
-    const lines = Number(url.searchParams.get("lines")) || 200;
+    const lines = clampLogLineCount(
+      Number(url.searchParams.get("lines")) || undefined,
+    );
     const entries = await fetchLogs(params.id, lines);
     return Response.json(entries);
   } catch (error) {
