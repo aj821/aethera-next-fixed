@@ -28,6 +28,11 @@ export function serverEnvFromDoc(server: IServer): Record<string, string> {
   const dockerType = getDockerType(server.serverType, server.modLoader);
   if (dockerType) env.TYPE = dockerType;
 
+  // GetBukkit no longer provides automated Spigot downloads. The maintained
+  // itzg image therefore requires BuildTools for Spigot installations.
+  // User-defined env vars are applied last and may explicitly override this.
+  if (dockerType === "SPIGOT") env.BUILD_FROM_SOURCE = "true";
+
   // --- VERSION ---
   // For pack types, use the resolved MC version (not user-entered)
   const effectiveVersion = server.resolvedMinecraftVersion || server.version;

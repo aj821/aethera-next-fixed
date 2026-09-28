@@ -42,9 +42,9 @@ async function init(): Promise<void> {
             labels: { "aethera.type": "minecraft" },
           },
           readyCheck: {
-            type: "log",
-            match: "Done",
-            timeout: 120_000,
+            logMatch: "Done",
+            // Spigot's first BuildTools run can take several minutes.
+            timeout: 15 * 60_000,
           },
           gracefulStop: {
             command: "stop",
